@@ -170,9 +170,8 @@ export default function World({ scene, sort, cast, quid, gate, onSnapePoke }) {
         {/* the Hat steps aside while Snape teaches the spells */}
         {/* in the gates scene the Hat waits at the far end of the corridor */}
         {/* the castle is the intro's subject; the gates scene ends at the Hat */}
-        <Interactive lift={0.6} grow={1.02} glow="#ffcf8a" glowAt={[0, 10, -40]}>
-          <Castle show={scene === 'intro' || PLAIN.includes(scene)} />
-        </Interactive>
+        {/* the castle is scenery: it doesn't react to the mouse (the intro click starts the music) */}
+        <Castle show={scene === 'intro' || PLAIN.includes(scene)} />
         <group visible={scene !== 'snape' && scene !== 'quidditch' && scene !== 'intro'} position={[0, 0, scene === 'gates' ? HAT_Z : 0]} scale={scene === 'gates' ? 1.7 : 1}>
           <Interactive glowAt={[0, 2.2, 1.4]} onPoke={thinking}>
             <Hat mode={hatMode(scene, sort, gate)} glow={hatGlow(scene, sort, gate)} />
