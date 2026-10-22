@@ -8,6 +8,8 @@
 
 // Invoices that already have an open dispute (staging: INV-000160 had four).
 const OPEN_DISPUTES = new Set(['INV-000160'])
+// This customer's invoices run INV-000100…INV-000499; any other number isn't theirs.
+const ours = (inv) => { const n = +inv.replace(/\D/g, ''); return n >= 100 && n < 500 }
 
 let nextId = 18267
 
@@ -16,10 +18,20 @@ const RX = {
   fraud: /\b(bank|account|routing|iban|swift|sort code|beneficiary|wire)\b[^.?!]*\b(details?|numbers?|chang|updat|verif|confirm|instructions?|new)\w*|\b(new|changed|updated|verify|confirm)\b[^.?!]*\b(bank|beneficiary|account details)\b/i,
   promise: /\b(will|shall|going to|plan(ning)? to|scheduled?|intend to|expect to|promise to|commit to)\b[^.?!]*\b(pay|payment|settle|clear|remit|transfer)\w*/i,
   dispute: /\b(disput\w*|disagree|incorrect|wrong(ly)?|overcharg\w*|higher than agreed|not (been )?received|damaged|discrepanc\w*|short[- ]?shipped|error in|billed twice|duplicate (charge|invoice))\b/i,
-  remittance: /\b(we have paid|has been paid|have paid|paid (in full|today|yesterday)|payment (has been |was )?(made|released|sent|processed|initiated)|remitted|remittance|utr|neft|ach|wire ref\w*|transaction (id|ref\w*))\b/i,
+  remittance: /\b(we (have |'ve )?paid|has been paid|have paid|paid (in full|today|yesterday)|payment (has been |was )?(made|released|sent|processed|initiated)|remitted|remittance|utr|neft|ach|wire ref\w*|transaction (id|ref\w*))\b/i,
   invoiceCopy: /\b(copy|copies|resend|re-send|send( us| me)?|share)\b[^.?!]*\b(invoices?|INV-?\d{3,})\b|\binvoice cop(y|ies)\b/i,
   statement: /\b(statement of account|soa|account statement|statement)\b/i,
   payHow: /\b(how|where) (can|do|should) (we|i) (make )?(the )?pay|\bpayment (instructions|methods|options)\b|\bremit[- ]to\b/i,
+  // T5 stored documents and T6 FAQ
+  document: /\b(w-?9|w-?8|coi|certificate of insurance|msa|master services agreement|tax (form|certificate)|vendor form|nda)\b/i,
+  faq: /\b(payment terms|net ?\d{2}|early[- ]payment discount|late (fee|fees|payment fee)|credit limit|accept (credit )?cards?|which currenc(y|ies)|tax id|vat (number|id))\b/i,
+  // each theme's "send it to a human instead" edges (CRM-11128 spec)
+  askedReceipt: /\b(did you (receive|get)|have you received|can you confirm (receipt|you received)|was it received)\b/i,
+  shortPay: /\b(short[- ]?pa(y|id)|partial(ly)? paid|refund|overpa(id|y)|deduct(ed|ion))\b/i,
+  vagueInvoices: /\b(all (my |our |the )?invoices|every invoice|open invoices)\b/i,
+  shippingDoc: /\b(pod|bol|proof of delivery|bill of lading)\b/i,
+  soaFilter: /\b(from \w+ (to|until) \w+|between \w+ and \w+|in excel|as (a )?(csv|xlsx|spreadsheet)|only (the )?(past[- ]?due|overdue|open))\b/i,
+  customForm: /\b(fill(ed)?[- ]?(in|out)|complete (our|the|this) form|sign (our|the|this))\b/i,
 }
 
 const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
@@ -89,15 +101,38 @@ export function classify({ to, body }, doors) {
 
   // 5. reply themes (only the AR mailbox can answer)
   const themes = []
-  if (RX.remittance.test(text) && !RX.promise.test(text)) themes.push('Remittance acknowledgement')
-  if (RX.invoiceCopy.test(text)) themes.push('Invoice copy')
+  const remit = RX.remittance.test(text) && !RX.promise.test(text)
+  if (remit) themes.push('Remittance acknowledgement')
+  if (RX.invoiceCopy.test(text) || RX.vagueInvoices.test(text)) themes.push('Invoice copy')
   if (RX.statement.test(text)) themes.push('Statement of account')
   if (RX.payHow.test(text)) themes.push('Payment instructions')
+  if (RX.document.test(text)) themes.push('Stored document')
+  if (RX.faq.test(text)) themes.push('FAQ')
+
+  // 6. all or nothing: one theme that must go to a human holds the whole reply
+  const human = []
+  if (remit && RX.askedReceipt.test(text)) human.push('T1: they ask whether the payment arrived')
+  if (remit && RX.shortPay.test(text)) human.push('T1: short-pay / refund language')
+  if (themes.includes('Invoice copy') && RX.vagueInvoices.test(text)) human.push('T2: no invoice number ("all invoices")')
+  if (themes.includes('Invoice copy') && RX.shippingDoc.test(text)) human.push('T2: asks for a POD / BOL')
+  if (themes.includes('Statement of account') && RX.soaFilter.test(text)) human.push('T3: date range, format or filter requested')
+  if (themes.includes('Stored document') && RX.customForm.test(text)) human.push('T5: a custom or filled-in form')
+  const foreign = themes.includes('Invoice copy') ? invoicesIn(text).filter((i) => !ours(i)) : []
 
   const actionLog = actions.map((a) => a.skipped
     ? `${a.type} ${a.scope}: skipped, ${a.skipped}`
     : `${a.type}${a.scope === 'account' ? '' : ' ' + a.scope}: created ${a.id}`)
 
+  if (themes.length && to === 'ar' && human.length) {
+    return result('ravenclaw', 'ABSTAINED_AMBIGUOUS', 'There is more to this one than meets the Hat… RAVENCLAW.', {
+      voice: 'ravenclaw-unsure', actions, reason: [`held for a human: ${human.join('; ')}`, ...actionLog].join(' | '),
+    })
+  }
+  if (themes.length && to === 'ar' && foreign.length) {
+    return result('ravenclaw', 'ABSTAINED_GROUNDING', "I can't send what isn't theirs… RAVENCLAW.", {
+      voice: 'ravenclaw-unsure', actions, reason: [`grounding failed: ${foreign.join(', ')} not found for this customer`, ...actionLog].join(' | '),
+    })
+  }
   if (themes.length && to === 'ar') {
     return result('gryffindor', 'SENT', ...hatLine('gryffindor', themes, created), {
       actions, reply: replyFor(themes, text),
@@ -146,7 +181,9 @@ function hatLine(house, themes, created) {
     if (first === 'Remittance acknowledgement') return ['Paid, and polite about it… I shall answer myself. GRYFFINDOR!', 'gryffindor-remittance']
     if (first === 'Invoice copy') return ['A copy of an invoice? Easily fetched… GRYFFINDOR!', 'gryffindor-invoice']
     if (first === 'Statement of account') return ['The whole ledger, wanted… GRYFFINDOR!', 'gryffindor-statement']
-    return ['Where to pay? I know just the parchment… GRYFFINDOR!', 'gryffindor-payment']
+    if (first === 'Payment instructions') return ['Where to pay? I know just the parchment… GRYFFINDOR!', 'gryffindor-payment']
+    if (first === 'Stored document') return ['The very document, exactly as kept… GRYFFINDOR!', null]
+    return ['A question already answered… GRYFFINDOR!', null]
   }
   const ptps = created.filter((a) => a.type === 'PROMISE_TO_PAY').length
   const disputes = created.length - ptps
@@ -163,6 +200,8 @@ function replyFor(themes, text) {
   if (themes.includes('Invoice copy')) lines.push(`Please find attached ${invs.length ? invs.join(', ') : 'the requested invoices'}.`)
   if (themes.includes('Statement of account')) lines.push('Your current statement of account is attached.')
   if (themes.includes('Payment instructions')) lines.push('Our payment instructions are attached as a PDF.')
+  if (themes.includes('Stored document')) lines.push('Please find the requested document attached.')
+  if (themes.includes('FAQ')) lines.push('Our payment terms are Net 30 from the invoice date.')
   return lines.join(' ')
 }
 
@@ -170,7 +209,14 @@ function replyFor(themes, text) {
 export const presets = [
   { label: 'Promise to pay', to: 'collector', body: 'Hi, we have scheduled a payment of INR 2,000 towards our overall account balance for 26 October 2026. Separately, we plan to settle invoice INV-000150 in full on 30 October 2026.' },
   { label: 'Remittance', to: 'ar', body: 'Payment released for INV-000160, reference NEFT-73918462.' },
+  { label: 'Invoice copy', to: 'ar', body: 'Could you resend INV-000201? We can not find it in our system.' },
+  { label: 'W-9', to: 'ar', body: 'Our vendor onboarding needs your W-9. Could you share it?' },
+  { label: 'Payment terms', to: 'ar', body: 'Quick question: what are your payment terms?' },
+  { label: 'Paid + terms', to: 'ar', body: 'We paid INV-000172 yesterday. Also, what are your payment terms going forward?' },
   { label: 'Dispute', to: 'ar', body: 'We are disputing INV-000160: the unit rate billed is higher than agreed.' },
+  { label: 'Did you get it?', to: 'ar', body: 'We paid INV-000172 last week. Did you receive it?' },
+  { label: 'SOA in Excel', to: 'ar', body: 'Please send our statement of account in Excel, only the past-due items.' },
+  { label: 'Not our invoice', to: 'ar', body: 'Please send a copy of INV-009999.' },
   { label: 'Bank details', to: 'ar', body: 'Our saved bank details are no longer visible. Please send the current instructions for an international transfer, including the beneficiary name.' },
   { label: 'Out of office', to: 'ar', body: 'Automatic reply: I am out of the office until Monday with limited access to email.' },
 ]
