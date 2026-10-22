@@ -13,7 +13,6 @@ import { Gates, HAT_Z, SNAPE_HOME, gatePoint, fx as gateFx } from './Gates'
 import { PatronusBurst } from './PatronusBurst'
 import { LiveStage } from './LiveStage'
 import { Interactive } from './Interactive'
-import { say, thinking } from '../voice'
 import { Castle, Mood } from './Castle'
 import { Patronus } from './Patronus'
 import { SPELLS } from '../spells'
@@ -84,8 +83,10 @@ function Rig({ shot, cold }) {
 }
 
 // Where each banner hangs and how bright, per scene.
-function bannerState(scene, sort) {
+function bannerState(scene, sort, hatSorted) {
   return order.map((k, i) => {
+    // easter egg: the Hat sorts the presenter, so the Slytherin banner drops behind it
+    if (hatSorted && HALL.includes(scene)) return k === 'slytherin' ? { to: [0, 4.05, -2.2], lit: 1 } : { to: HIDDEN(i), lit: 0 }
     const home = [ROW[i], 3.75, -3.4]
     if (scene === 'snape' || scene === 'quidditch' || scene === 'gates' || scene === 'intro') return { to: HIDDEN(i), lit: 0 }
     if (scene === 'live') {
@@ -129,8 +130,8 @@ function ForegroundRock() {
   )
 }
 
-export default function World({ scene, sort, cast, quid, gate, onSnapePoke }) {
-  const banners = bannerState(scene, sort)
+export default function World({ scene, sort, cast, quid, gate, onSnapePoke, onHatPoke, hatSorted }) {
+  const banners = bannerState(scene, sort, hatSorted)
   const phases = useMemo(() => order.map((_, i) => i * 1.7), [])
 
   const dark = isDark(scene)
@@ -173,7 +174,7 @@ export default function World({ scene, sort, cast, quid, gate, onSnapePoke }) {
         {/* the castle is scenery: it doesn't react to the mouse (the intro click starts the music) */}
         <Castle show={scene === 'intro' || PLAIN.includes(scene)} />
         <group visible={scene !== 'snape' && scene !== 'quidditch' && scene !== 'intro'} position={[0, 0, scene === 'gates' ? HAT_Z : 0]} scale={scene === 'gates' ? 1.7 : 1}>
-          <Interactive glowAt={[0, 2.2, 1.4]} onPoke={thinking}>
+          <Interactive glowAt={[0, 2.2, 1.4]} onPoke={onHatPoke}>
             <Hat mode={hatMode(scene, sort, gate)} glow={hatGlow(scene, sort, gate)} />
           </Interactive>
         </group>

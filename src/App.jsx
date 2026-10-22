@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import World from './three/World'
 import { wasPoked } from './three/Interactive'
 import { Avada, DEAD_AFTER, HIT as AVADA_HIT } from './overlays/Avada'
+import { Sorted } from './overlays/Sorted'
 import { classify } from './classify'
 import { Title, Fin } from './overlays/Captions'
 import { Pipeline, Houses, Doors } from './overlays/Slides'
@@ -127,6 +128,24 @@ export default function App() {
     deadAt.current = performance.now()
     setDead(true)
   }, [])
+  // Easter egg: pester the Hat five times in 5 s and it sorts YOU into Slytherin.
+  const [sorted, setSorted] = useState(null) // key while the payoff shows
+  const hatPokes = useRef([])
+  const eggTimers = useRef([])
+  const pokeHat = useCallback(() => {
+    const now = performance.now()
+    hatPokes.current = [...hatPokes.current.filter((x) => now - x < 5000), now]
+    if (hatPokes.current.length < 5) { thinking(); return }
+    hatPokes.current = []
+    eggTimers.current.forEach(clearTimeout)
+    say('hat-annoyed') // public/voice/hat-annoyed.mp3: "…belong in… SLYTHERIN!" lands at ~14.5 s
+    const key = Date.now()
+    eggTimers.current = [
+      setTimeout(() => setSorted(key), 14300),
+      setTimeout(() => setSorted((k) => (k === key ? null : k)), 14300 + 6000),
+    ]
+  }, [])
+  if (import.meta.env.DEV) window.__pokeHat = pokeHat // lets the screenshot checks run the egg
   const revive = useCallback(() => { if (performance.now() - deadAt.current > DEAD_AFTER) setDead(false) }, [])
 
   const scene = SCENES[at]
@@ -212,7 +231,7 @@ export default function App() {
       if (scene !== 'live' && !e.target.closest('button')) go(e.shiftKey ? -1 : 1)
     }}
       style={{ position: 'fixed', inset: 0, cursor: scene === 'live' ? 'default' : 'pointer' }}>
-      <World scene={scene} sort={sort} cast={cast} quid={quid} gate={gate} onSnapePoke={pokeSnape} />
+      <World scene={scene} sort={sort} cast={cast} quid={quid} gate={gate} onSnapePoke={pokeSnape} onHatPoke={pokeHat} hatSorted={!!sorted} />
       {scene === 'title' && <Title />}
       {scene === 'intro' && <Intro started={started} />}
       {scene === 'pipeline' && <Pipeline />}
@@ -223,6 +242,7 @@ export default function App() {
       {scene === 'quidditch' && <QuidditchOverlay result={result} hoops={hoops} off={off} onToggle={toggleCheck} onFly={() => flyRun(off)} />}
       {scene === 'live' && <Live sort={sort} doors={doors} setDoors={setDoors} onSend={send} onReset={reset} />}
       {scene === 'fin' && <Fin />}
+      {sorted && <Sorted key={sorted} />}
       {dead && <Avada onRevive={revive} />}
     </div>
   )
