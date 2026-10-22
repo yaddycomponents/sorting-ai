@@ -12,7 +12,7 @@ import { SpellBook } from './overlays/SpellBook'
 import { SPELLS } from './spells'
 import { Live } from './overlays/Live'
 import { say, thinking, hush, toggleMute, onLine, playSfx } from './voice'
-import { playTheme, stopTheme, themePlaying } from './music'
+import { playTheme, stopTheme, themePlaying, themeStarting } from './music'
 import { Intro } from './overlays/Intro'
 
 // Plain slides first, then the 3D: the Hat appears, sorts live, and bows out.
@@ -145,6 +145,7 @@ export default function App() {
   const [started, setStarted] = useState(false)
   const tries = useRef(0)
   const begin = useCallback(() => {
+    if (themeStarting()) return true // still loading: hold the intro, don't skip past the music
     if (themePlaying() || tries.current >= 2) return false
     tries.current++
     setStarted(true)
