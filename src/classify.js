@@ -125,12 +125,12 @@ export function classify({ to, body }, doors) {
 
   if (themes.length && to === 'ar' && human.length) {
     return result('ravenclaw', 'ABSTAINED_AMBIGUOUS', 'There is more to this one than meets the Hat… RAVENCLAW.', {
-      voice: 'ravenclaw-unsure', actions, reason: [`held for a human: ${human.join('; ')}`, ...actionLog].join(' | '),
+      voice: 'ravenclaw-ambiguous', actions, reason: [`held for a human: ${human.join('; ')}`, ...actionLog].join(' | '),
     })
   }
   if (themes.length && to === 'ar' && foreign.length) {
     return result('ravenclaw', 'ABSTAINED_GROUNDING', "I can't send what isn't theirs… RAVENCLAW.", {
-      voice: 'ravenclaw-unsure', actions, reason: [`grounding failed: ${foreign.join(', ')} not found for this customer`, ...actionLog].join(' | '),
+      voice: 'ravenclaw-grounding', actions, reason: [`grounding failed: ${foreign.join(', ')} not found for this customer`, ...actionLog].join(' | '),
     })
   }
   if (themes.length && to === 'ar') {
@@ -182,8 +182,8 @@ function hatLine(house, themes, created) {
     if (first === 'Invoice copy') return ['A copy of an invoice? Easily fetched… GRYFFINDOR!', 'gryffindor-invoice']
     if (first === 'Statement of account') return ['The whole ledger, wanted… GRYFFINDOR!', 'gryffindor-statement']
     if (first === 'Payment instructions') return ['Where to pay? I know just the parchment… GRYFFINDOR!', 'gryffindor-payment']
-    if (first === 'Stored document') return ['The very document, exactly as kept… GRYFFINDOR!', null]
-    return ['A question already answered… GRYFFINDOR!', null]
+    if (first === 'Stored document') return ['The very document, exactly as kept… GRYFFINDOR!', 'gryffindor-document']
+    return ['A question already answered… GRYFFINDOR!', 'gryffindor-faq']
   }
   const ptps = created.filter((a) => a.type === 'PROMISE_TO_PAY').length
   const disputes = created.length - ptps
